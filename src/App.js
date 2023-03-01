@@ -1,9 +1,16 @@
-import logo from './logo.svg';
-import './App.css';
+import logo from "./logo.svg";
+import "./App.css";
 
 function App() {
   return (
     <div className="App">
+      <button
+        onClick={() => {
+          window.open("https://getbootstrap.com/");
+        }}
+      >
+        Go to Bootstrap Documentation
+      </button>
       <header className="App-header">
         <img src={logo} className="App-logo" alt="logo" />
         <p>

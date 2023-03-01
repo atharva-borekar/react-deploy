@@ -1,0 +1,29 @@
+{
+  "semi": true,
+  "tabWidth": 2,
+  "printWidth": 85,
+  "singleQuote": true,
+  "trailingComma": "none",
+  "jsxBracketSameLine": true,
+  "arrowParens": "avoid",
+  "endOfLine": "lf",
+  "htmlWhitespaceSensitivity": "css",
+  "insertPragma": false,
+  "jsxSingleQuote": false,
+  "proseWrap": "always",
+  "quoteProps": "as-needed",
+  "requirePragma": false,
+  "useTabs": false,
+  "importOrder": [
+    "react",
+    "<THIRD_PARTY_MODULES>",
+    "^(cplibrary|cpicons|cputil|cpclient|@cpclient|cpshots).*$",
+    "components/.*$",
+    "^(constants|data|hooks|util|utils)/.*$",
+    "^(\\.|\\.\\.)/(.(?!.(css|scss)))*$",
+    "\\.(css|scss)$"
+  ],
+  "importOrderSeparation": true,
+  "importOrderSortSpecifiers": true,
+  "importOrderCaseInsensitive": true
+}
