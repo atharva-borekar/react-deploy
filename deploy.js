@@ -203,7 +203,13 @@ const main = async () => {
                       console.log('after transfer');
 
                       conn.exec(
-                        `sudo docker pull nginx \nsudo docker run -d --name docker-nginx -p 80:80 nginx`,
+                        `
+                        sudo docker stop $(sudo docker ps -a -q)
+                        sudo docker rm $(sudo docker ps -a -q)
+                        sudo docker pull nginx
+                        sudo docker run -d --name docker-nginx -p 80:80 nginx
+                        exit
+                        `,
                         (err, stream) => {
                           if (err) throw err;
                           stream
