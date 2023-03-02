@@ -180,27 +180,27 @@ const main = async () => {
     const conn = new Client();
     conn.on('ready', () => {
       console.log('Client :: ready');
-      conn.exec('cd /home && ls', (err, stream) => {
+      conn.exec('cd /home \nls \nsudo apt-get update', (err, stream) => {
         if (err) throw err;
         stream
           .on('close', (code, signal) => {
-            console.log('Stream :: close :: code: ' + code + ', signal: ' + signal);
-            conn.exec('ls', (err, stream) => {
-              if (err) throw err;
-              stream
-                .on('close', (code, signal) => {
-                  console.log(
-                    'Stream :: close :: code: ' + code + ', signal: ' + signal
-                  );
-                  conn.end();
-                })
-                .on('data', data => {
-                  console.log('STDOUT: ' + data);
-                })
-                .stderr.on('data', data => {
-                  console.log('STDERR: ' + data);
-                });
-            });
+            conn.exec(
+              'sudo apt-get install ca-certificates curl gnupg lsb-release',
+              (err, stream) => {
+                if (err) throw err;
+                stream
+                  .on('close', (code, signal) => {
+                    console.log('in installation');
+                    conn.end();
+                  })
+                  .on('data', data => {
+                    if (data === '[Y/n]') stream.write('Y');
+                  })
+                  .stderr.on('data', data => {
+                    console.log('STDERR: ' + data);
+                  });
+              }
+            );
           })
           .on('data', data => {
             console.log('STDOUT: ' + data);
@@ -209,6 +209,59 @@ const main = async () => {
             console.log('STDERR: ' + data);
           });
       });
+      //   conn.exec('cd /home && ls', (err, stream) => {
+      //     if (err) throw err;
+      //     stream
+      //       .on('close', (code, signal) => {
+      //         conn.exec(
+      //           'sudo apt-get update && sudo apt-get install ca-certificates curl gnupg lsb-release',
+      //           (err, stream) => {
+      //             if (err) throw err;
+      //             stream
+      //               .on('close', (code, signal) => {
+      //                 console.log('inside input');
+      //                 conn.exec(
+      //                   'sudo mkdir -m 0755 -p /etc/apt/keyrings && curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg && echo \
+      //                     "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+      //                     $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null',
+      //                   (err, stream) => {
+      //                     if (err) throw err;
+      //                     stream
+      //                       .on('close', (code, signal) => {
+      //                         console.log(
+      //                           'Stream :: close :: code: ' +
+      //                             code +
+      //                             ', signal: ' +
+      //                             signal
+      //                         );
+      //                         conn.end();
+      //                       })
+      //                       .on('data', data => {
+      //                         console.log('STDOUT: ' + data);
+      //                       })
+      //                       .stderr.on('data', data => {
+      //                         console.log('STDERR: ' + data);
+      //                       });
+      //                   }
+      //                 );
+      //                 conn.end();
+      //               })
+      //               .on('data', data => {
+      //                 console.log('STDOUT: ' + data);
+      //               })
+      //               .stderr.on('data', data => {
+      //                 console.log('STDERR: ' + data);
+      //               });
+      //           }
+      //         );
+      //       })
+      //     .on('data', data => {
+      //       console.log('STDOUT: ' + data);
+      //     })
+      //     .stderr.on('data', data => {
+      //       console.log('STDERR: ' + data);
+      //     });
+      // });
     });
 
     conn.on('error', err => {
