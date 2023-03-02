@@ -12,7 +12,7 @@ const configConstants = {
 const defaultConfig = {
   [configConstants.NODE_VERSION]: 'node:16-alpine',
   [configConstants.WORK_DIRECTORY]: '/app',
-  [configConstants.DOCKER_COMPOSE_FILE_NAME]: 'docker.compose.yml',
+  [configConstants.DOCKER_COMPOSE_FILE_NAME]: 'docker-compose.yml',
   [configConstants.DOCKERFILE_NAME]: 'Dockerfile',
   [configConstants.DOCKER_VERSION]: '3.3',
   [configConstants.CONTAINER_NAME]: 'my-app',
@@ -47,36 +47,30 @@ const getDockerfileContent = args => {
   } = args;
   const { NODE_VERSION, WORK_DIRECTORY } = configConstants;
 
-  return `
-    # pull official base image 
-    FROM ${nodeVersion ?? defaultConfig[NODE_VERSION]} 
+  return `# pull official base image 
+FROM ${nodeVersion ?? defaultConfig[NODE_VERSION]} 
 
-    RUN apt-get update
-    RUN apt-get install -y git
-    RUN mkdir -p ${folderPath ?? './my-app'} && cd ${folderPath ?? './my-app'}
-    RUN git clone -n https://${gitUser}:${gitToken}@github.com/${gitUsername}/${repoName}
+# set working directory 
+
+
+RUN apk update
+RUN apk add git
+RUN git clone https://${gitUsername}:${gitToken}@github.com/${gitUsername}/${repoName}.git
+
+WORKDIR ${repoName} 
+# add "/app/node_modules/.bin" to $PATH 
+# ENV PATH ${
+    workingDirectory ?? defaultConfig[WORK_DIRECTORY]
+  }/node_modules/.bin:$PATH 
   
-    # set working directory 
-    WORKDIR ${workingDirectory ?? defaultConfig[WORK_DIRECTORY]} 
+# add app 
+# COPY . ${workingDirectory ?? defaultConfig[WORK_DIRECTORY]} 
+
+RUN npm i react-scripts@3.4.1 
+RUN npm install 
   
-    # add "/app/node_modules/.bin" to $PATH 
-    ENV PATH ${
-      workingDirectory ?? defaultConfig[WORK_DIRECTORY]
-    }/node_modules/.bin:$PATH 
-  
-    # add app 
-    COPY . ${workingDirectory ?? defaultConfig[WORK_DIRECTORY]} 
-  
-    # install app dependencies 
-    COPY package.json ${workingDirectory ?? defaultConfig[WORK_DIRECTORY]} 
-  
-    #COPY package-lock.lock /app 
-    RUN npm i react-scripts@3.4.1 
-    RUN npm install 
-    RUN npm build 
-  
-    # start app 
-    CMD ["npm", "start"]`;
+# start app 
+CMD ["npm", "start"]`;
 };
 
 const getDockerComposeContent = args => {
@@ -90,20 +84,19 @@ const getDockerComposeContent = args => {
     CONTAINER_PORT
   } = configConstants;
 
-  return `
-  version: '${dockerVersion ?? defaultConfig[DOCKER_VERSION]}'
-  services:
-    sample:
-      container_name: ${containerName ?? defaultConfig[CONTAINER_NAME]}
-      build:
-        context: .
-        dockerfile: ${dockerfileName ?? defaultConfig[DOCKERFILE_NAME]}
-      ports:
-        - ${hostPort ?? defaultConfig[HOST_PORT]}:${
+  return `version: '${dockerVersion ?? defaultConfig[DOCKER_VERSION]}'
+services:
+  sample:
+    container_name: ${containerName ?? defaultConfig[CONTAINER_NAME]}
+    build:
+      context: .
+      dockerfile: ${dockerfileName ?? defaultConfig[DOCKERFILE_NAME]}
+    ports:
+      - ${hostPort ?? defaultConfig[HOST_PORT]}:${
     containerPort ?? defaultConfig[CONTAINER_PORT]
   }
-      environment:
-        - CHOKIDAR_USEPOLLING=true`;
+    environment:
+      - CHOKIDAR_USEPOLLING=true`;
 };
 
 const createDockerComposeFile = args => {
@@ -198,7 +191,7 @@ const main = async () => {
                     .on('close', (code, signal) => {
                       console.log('in transfer');
                       require('child_process').exec(
-                        'scp -i react-deploy-2.pem Dockerfile docker.compose.yml ubuntu@ec2-13-232-196-21.ap-south-1.compute.amazonaws.com:/home/react-deploy'
+                        'scp -i react-deploy-2.pem Dockerfile docker-compose.yml ubuntu@ec2-13-232-196-21.ap-south-1.compute.amazonaws.com:/home/react-deploy'
                       );
                       console.log('after transfer');
 
@@ -207,8 +200,12 @@ const main = async () => {
                         sudo docker stop $(sudo docker ps -a -q)
                         sudo docker rm $(sudo docker ps -a -q)
                         sudo docker pull nginx
-                        sudo docker run -d --name docker-nginx -p 80:80 nginx
-                        exit
+                        sudo docker run -d --name nginx-base -p 80:80 nginx:latest
+                        cd /home/react-deploy
+                        ls -a
+                        sudo docker cp nginx-base:/etc/nginx/conf.d/default.conf /home/react-deploy/default.conf
+                        sudo docker-compose build
+                        sudo docker-compose up -d
                         `,
                         (err, stream) => {
                           if (err) throw err;
@@ -218,7 +215,7 @@ const main = async () => {
                               conn.end();
                             })
                             .on('data', data => {
-                              if (data === '[Y/n]') stream.write('Y');
+                              console.log('STDOUT: ' + data);
                             })
                             .stderr.on('data', data => {
                               console.log('STDERR: ' + data);
