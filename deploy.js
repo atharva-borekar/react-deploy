@@ -195,17 +195,30 @@ const main = async () => {
                 (err, stream) => {
                   if (err) throw err;
                   stream
-                    .on('close', async (code, signal) => {
-                      const promise = new Promise((resolve, reject) =>
-                        resolve(
-                          require('child_process').exec(
-                            'scp -i react-deploy-2.pem Dockerfile docker.compose.yml ubuntu@ec2-13-232-196-21.ap-south-1.compute.amazonaws.com:/home/react-deploy'
-                          )
-                        )
+                    .on('close', (code, signal) => {
+                      console.log('in transfer');
+                      require('child_process').exec(
+                        'scp -i react-deploy-2.pem Dockerfile docker.compose.yml ubuntu@ec2-13-232-196-21.ap-south-1.compute.amazonaws.com:/home/react-deploy'
                       );
-                      promise.then(() => {
-                        conn.end();
-                      });
+                      console.log('after transfer');
+
+                      conn.exec(
+                        `sudo docker pull nginx \nsudo docker run -d --name docker-nginx -p 80:80 nginx`,
+                        (err, stream) => {
+                          if (err) throw err;
+                          stream
+                            .on('close', (code, signal) => {
+                              console.log('in nginx start');
+                              conn.end();
+                            })
+                            .on('data', data => {
+                              if (data === '[Y/n]') stream.write('Y');
+                            })
+                            .stderr.on('data', data => {
+                              console.log('STDERR: ' + data);
+                            });
+                        }
+                      );
                     })
                     .on('data', data => {
                       if (data === '[Y/n]') stream.write('Y');
