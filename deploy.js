@@ -41,7 +41,7 @@ const getDockerfileContent = args => {
     workingDirectory,
     gitUser,
     gitToken,
-    gitUserName,
+    gitUsername,
     repoName,
     folderPath
   } = args;
@@ -53,8 +53,8 @@ const getDockerfileContent = args => {
 
     RUN apt-get update
     RUN apt-get install -y git
-    RUN mkdir -p ${folderPath} && cd ${folderPath}
-    RUN git clone -n https://${gitUser}:${gitToken}@github.com/${gitUserName}/${repoName}
+    RUN mkdir -p ${folderPath ?? './my-app'} && cd ${folderPath ?? './my-app'}
+    RUN git clone -n https://${gitUser}:${gitToken}@github.com/${gitUsername}/${repoName}
   
     # set working directory 
     WORKDIR ${workingDirectory ?? defaultConfig[WORK_DIRECTORY]} 
@@ -108,32 +108,42 @@ const getDockerComposeContent = args => {
 
 const createDockerComposeFile = args => {
   const { dockerComposeFilename } = args;
-  import('fs').then(fs => {
-    fs.writeFile(
-      dockerComposeFilename ??
-        defaultConfig[configConstants.DOCKER_COMPOSE_FILE_NAME],
-      getDockerComposeContent(args),
-      err => {
-        if (err) throw err;
-      }
+
+  return new Promise((resolve, reject) => {
+    resolve(
+      import('fs').then(fs => {
+        fs.writeFile(
+          dockerComposeFilename ??
+            defaultConfig[configConstants.DOCKER_COMPOSE_FILE_NAME],
+          getDockerComposeContent(args),
+          err => {
+            if (err) throw err;
+          }
+        );
+      })
     );
   });
 };
 
 const createDockerfile = args => {
   const { dockerfileName } = args;
-  import('fs').then(fs => {
-    fs.writeFile(
-      dockerfileName ?? defaultConfig[configConstants.DOCKERFILE_NAME],
-      getDockerfileContent(args),
-      err => {
-        if (err) throw err;
-      }
+
+  return new Promise((resolve, reject) => {
+    resolve(
+      import('fs').then(fs => {
+        fs.writeFile(
+          dockerfileName ?? defaultConfig[configConstants.DOCKERFILE_NAME],
+          getDockerfileContent(args),
+          err => {
+            if (err) throw err;
+          }
+        );
+      })
     );
   });
 };
 
-const main = () => {
+const main = async () => {
   const args = parseArguments();
   if (args['help'])
     console.log(
@@ -150,9 +160,72 @@ const main = () => {
     
     `
     );
+  let filesCreated = {
+    dockerFile: false,
+    dockerComposeFile: false
+  };
 
-  createDockerfile(args);
-  createDockerComposeFile(args);
+  await createDockerfile(args).then(() => {
+    filesCreated['dockerFile'] = true;
+  });
+
+  await createDockerComposeFile(args).then(() => {
+    filesCreated['dockerComposeFile'] = true;
+  });
+
+  if (filesCreated['dockerFile'] && filesCreated['dockerComposeFile']) {
+    console.log('after all files created');
+    const Client = require('ssh2').Client;
+
+    const conn = new Client();
+    conn.on('ready', () => {
+      console.log('Client :: ready');
+      conn.exec('cd /home && ls', (err, stream) => {
+        if (err) throw err;
+        stream
+          .on('close', (code, signal) => {
+            console.log('Stream :: close :: code: ' + code + ', signal: ' + signal);
+            conn.exec('ls', (err, stream) => {
+              if (err) throw err;
+              stream
+                .on('close', (code, signal) => {
+                  console.log(
+                    'Stream :: close :: code: ' + code + ', signal: ' + signal
+                  );
+                  conn.end();
+                })
+                .on('data', data => {
+                  console.log('STDOUT: ' + data);
+                })
+                .stderr.on('data', data => {
+                  console.log('STDERR: ' + data);
+                });
+            });
+          })
+          .on('data', data => {
+            console.log('STDOUT: ' + data);
+          })
+          .stderr.on('data', data => {
+            console.log('STDERR: ' + data);
+          });
+      });
+    });
+
+    conn.on('error', err => {
+      console.log('Error :: ' + err);
+    });
+
+    conn.on('end', () => {
+      console.log('Client :: end');
+    });
+
+    conn.connect({
+      host: '13.232.196.21',
+      port: 22,
+      username: 'ubuntu',
+      privateKey: require('fs').readFileSync('react-deploy-2.pem')
+    });
+  }
 };
 
 main();

@@ -4,8 +4,8 @@
 
     RUN apt-get update
     RUN apt-get install -y git
-    RUN mkdir -p undefined && cd undefined
-    RUN git clone -n https://undefined:undefined@github.com/undefined/undefined
+    RUN mkdir -p ./my-app && cd ./my-app
+    RUN git clone -n https://athessi10@gmail.com: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@github.com/undefined/react-deploy
   
     # set working directory 
     WORKDIR /app 
