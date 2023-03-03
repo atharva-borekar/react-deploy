@@ -1,3 +1,4 @@
+const { exec } = require('child_process');
 const configConstants = {
   NODE_VERSION: 'nodeVersion',
   WORK_DIRECTORY: 'workDirectory',
@@ -22,6 +23,30 @@ const defaultConfig = {
   [configConstants.NGINX_CONFIG_FILE_NAME]: 'default.conf'
 };
 
+const Reset = '\x1b[0m';
+const Bright = '\x1b[1m';
+const Dim = '\x1b[2m';
+const Underscore = '\x1b[4m';
+const Blink = '\x1b[5m';
+const Reverse = '\x1b[7m';
+const Hidden = '\x1b[8m';
+
+const FgBlack = '\x1b[30m';
+const FgRed = '\x1b[31m';
+const FgGreen = '\x1b[32m';
+const FgYellow = '\x1b[33m';
+const FgBlue = '\x1b[34m';
+const FgMagenta = '\x1b[35m';
+const FgCyan = '\x1b[36m';
+const FgWhite = '\x1b[37m';
+const FgGray = '\x1b[90m';
+
+const printSuccess = msg => console.log(FgGreen, msg);
+const printError = msg => console.log(FgRed, msg);
+const printWarning = msg => console.log(FgYellow, msg);
+const printProgress = msg => console.log(Blink, msg);
+const print = msg => console.log(FgWhite, msg);
+
 const parseArguments = () => {
   const args = process.argv;
   args.splice(0, 2);
@@ -37,63 +62,6 @@ const parseArguments = () => {
   return deploymentConfig;
 };
 
-const getDockerfileContent = args => {
-  const {
-    nodeVersion,
-    workingDirectory,
-    gitUser,
-    gitToken,
-    gitUsername,
-    repoName,
-    folderPath
-  } = args;
-  const { NODE_VERSION, WORK_DIRECTORY } = configConstants;
-
-  return `# pull official base image 
-FROM ${nodeVersion ?? defaultConfig[NODE_VERSION]} as build
-
-# set working directory 
-WORKDIR /app
-
-RUN apk update
-RUN apk add git
-RUN git clone https://${gitUsername}:${gitToken}@github.com/${gitUsername}/${repoName}.git
-
-WORKDIR /app/${repoName}
-RUN npm install --production
-RUN npm run build
-
-CMD ["npm", "run", "start"]
-`;
-};
-
-const getDockerComposeContent = args => {
-  const { dockerVersion, containerName, dockerfileName, hostPort, containerPort } =
-    args;
-  const {
-    DOCKER_VERSION,
-    CONTAINER_NAME,
-    DOCKERFILE_NAME,
-    HOST_PORT,
-    CONTAINER_PORT
-  } = configConstants;
-
-  return `version: '${dockerVersion ?? defaultConfig[DOCKER_VERSION]}'
-services:
-  web:
-    container_name: ${containerName ?? defaultConfig[CONTAINER_NAME]}
-    build:
-      context: .
-      dockerfile: ${dockerfileName ?? defaultConfig[DOCKERFILE_NAME]}
-    ports:
-      - ${hostPort ?? defaultConfig[HOST_PORT]}:${
-    containerPort ?? defaultConfig[CONTAINER_PORT]
-  }
-    environment:
-      - CHOKIDAR_USEPOLLING=true
-    restart: always`;
-};
-
 const getNginxConfigFile = args => {
   return `server {
     listen 80 default_server;
@@ -101,7 +69,7 @@ const getNginxConfigFile = args => {
 
     index index.html index.htm;
 
-    server_name 3.109.154.134;
+    server_name 3.110.43.74;
 
     location / {
             # First attempt to serve request as file, then
@@ -110,43 +78,6 @@ const getNginxConfigFile = args => {
     }
 }
 `;
-};
-
-const createDockerComposeFile = args => {
-  const { dockerComposeFilename } = args;
-
-  return new Promise((resolve, reject) => {
-    resolve(
-      import('fs').then(fs => {
-        fs.writeFile(
-          dockerComposeFilename ??
-            defaultConfig[configConstants.DOCKER_COMPOSE_FILE_NAME],
-          getDockerComposeContent(args),
-          err => {
-            if (err) throw err;
-          }
-        );
-      })
-    );
-  });
-};
-
-const createDockerfile = args => {
-  const { dockerfileName } = args;
-
-  return new Promise((resolve, reject) => {
-    resolve(
-      import('fs').then(fs => {
-        fs.writeFile(
-          dockerfileName ?? defaultConfig[configConstants.DOCKERFILE_NAME],
-          getDockerfileContent(args),
-          err => {
-            if (err) throw err;
-          }
-        );
-      })
-    );
-  });
 };
 
 const createNginxConfigFile = args => {
@@ -166,6 +97,48 @@ const createNginxConfigFile = args => {
     );
   });
 };
+
+const installPackages = () =>
+  new Promise((resolve, reject) => {
+    exec('npm i', (error, stdout, stderr) => {
+      if (error) {
+        reject(
+          new Error(
+            `Error encountered while installing NPM packages: ${error.message}`
+          )
+        );
+      }
+      if (stderr) {
+        printWarning(`stderr: ${stderr}`);
+        return;
+      }
+      print(stdout);
+      resolve('Packages installed successfully!');
+    });
+  });
+
+const createBuild = () =>
+  new Promise((resolve, reject) => {
+    exec('npm run build', (error, stdout, stderr) => {
+      if (error) {
+        reject(`Error encountered when creating build: ${error.message}`);
+        return;
+      }
+      if (stderr) {
+        console.log(`stderr: ${stderr}`);
+        return;
+      }
+      print(stdout);
+      resolve(
+        `
+          +==========================+
+          |  Build has been created  |
+          |      Successfully!       |
+          +==========================+
+        `
+      );
+    });
+  });
 
 const main = async () => {
   const args = parseArguments();
@@ -190,83 +163,49 @@ const main = async () => {
     --containerName=<>
     --containerPort=<>
     --hostPort=<>
-    
     `
     );
   let filesCreated = {
-    dockerFile: false,
-    dockerComposeFile: false,
     nginxFile: false
   };
 
-  await createDockerfile(args).then(() => {
-    filesCreated['dockerFile'] = true;
-  });
+  console.log('Installing dependencies --->');
+  installPackages()
+    .then(res => {
+      console.log(res);
+      console.log('Creating static build --->');
+      createBuild().then(res => {
+        console.log(res);
+        console.log('Creating Nginx config file --->');
+        createNginxConfigFile(args).then(() => {
+          console.log('Nginx config file created successfully!');
+          const Client = require('ssh2').Client;
 
-  await createDockerComposeFile(args).then(() => {
-    filesCreated['dockerComposeFile'] = true;
-  });
+          const conn = new Client();
 
-  await createNginxConfigFile(args).then(() => {
-    filesCreated['nginxFile'] = true;
-  });
+          conn.on('ready', () => {
+            console.log('Client :: ready');
+            exec(
+              'scp -i react-deploy-2.pem -r build/ ubuntu@ec2-3-110-43-74.ap-south-1.compute.amazonaws.com:~/'
+            );
+            conn.exec(`sudo apt-get install nginx -y`, (err, stream) => {
+              if (err) throw err;
+              stream
+                .on('close', (code, signal) => {
+                  console.log('Copying nginx config');
 
-  if (
-    filesCreated['dockerFile'] &&
-    filesCreated['dockerComposeFile'] &&
-    filesCreated['nginxFile']
-  ) {
-    console.log('after all files created');
-    const Client = require('ssh2').Client;
+                  exec(
+                    `scp default.conf ubuntu@ec2-3-110-43-74.ap-south-1.compute.amazonaws.com:~/etc/nginx/sites-available/
+                     scp default.conf ubuntu@ec2-3-110-43-74.ap-south-1.compute.amazonaws.com:~/etc/nginx/conf.d/
+                    `
+                  );
+                  console.log('Copying nginx config successful!');
 
-    const conn = new Client();
-    conn.on('ready', () => {
-      console.log('Client :: ready');
-      conn.exec(
-        `sudo apt-get update\n
-        sudo apt-get install nodejs -y\n
-        sudo apt-get install npm -y\n
-        sudo rm -R ${repoName}\n
-        sudo git clone https://${gitUsername}:${gitToken}@github.com/${gitUsername}/${repoName}.git
-        cd ${repoName}
-        sudo npm i --force
-        sudo npm run build
-        sudo cp -r build/. /var/www/html/
-        `,
-        (err, stream) => {
-          if (err) throw err;
-          stream
-            .on('close', (code, signal) => {
-              conn.exec(
-                `sudo apt-get update\n
-              curl -fsSL https://get.docker.com -o get-docker.sh\n
-              sh get-docker.sh\n
-              sudo apt-get install nginx -y\n
-              sudo apt-get install docker-compose-plugin\n
-              sudo docker run hello-world`,
-                (err, stream) => {
-                  if (err) throw err;
-                  stream
-                    .on('close', (code, signal) => {
-                      console.log('in transfer');
-                      require('child_process').exec(
-                        'scp -i react-deploy-2.pem Dockerfile docker-compose.yml default.conf ubuntu@ec2-3-109-154-134.ap-south-1.compute.amazonaws.com:~/react-deploy'
-                      );
-                      console.log('after transfer');
-
-                      conn.exec(
-                        `
-                        ls
-                        sudo docker stop $(sudo docker ps -a -q)
-                        sudo docker rm $(sudo docker ps -a -q)
-                        cd react-deploy
-                        ls -a
-                        sudo docker compose build
-                        sudo docker compose up -d
-                        sudo systemctl status nginx
-                        sudo systemctl start nginx
-                        `,
-                        (err, stream) => {
+                  conn.exec('sudo cp -r build/. /var/www/html/', (err, stream) => {
+                    if (err) throw err;
+                    stream
+                      .on('close', (code, signal) => {
+                        conn.exec('sudo systemctl restart nginx', (err, stream) => {
                           if (err) throw err;
                           stream
                             .on('close', (code, signal) => {
@@ -278,44 +217,48 @@ const main = async () => {
                             .stderr.on('data', data => {
                               console.log('STDERR: ' + data);
                             });
-                        }
-                      );
-                    })
-                    .on('data', data => {
-                      if (data === '[Y/n]') stream.write('Y');
-                    })
-                    .stderr.on('data', data => {
-                      console.log('STDERR: ' + data);
-                    });
-                }
-              );
-            })
-            .on('data', data => {
-              console.log('STDOUT: ' + data);
-            })
-            .stderr.on('data', data => {
-              console.log('STDERR: ' + data);
+                        });
+                      })
+                      .on('data', data => {
+                        console.log('STDOUT: ' + data);
+                      })
+                      .stderr.on('data', data => {
+                        console.log('STDERR: ' + data);
+                      });
+                  });
+                })
+                .on('data', data => {
+                  console.log('STDOUT: ' + data);
+                })
+                .stderr.on('data', data => {
+                  console.log('STDERR: ' + data);
+                });
             });
-        }
-      );
+          });
+
+          conn.on('error', err => {
+            console.log('Error :: ' + err);
+          });
+
+          conn.on('end', () => {
+            console.log('Client :: end');
+            conn.end();
+          });
+
+          conn.connect({
+            host: '3.110.43.74',
+            port: 22,
+            username: 'ubuntu',
+            privateKey: require('fs').readFileSync('react-deploy-2.pem')
+          });
+        });
+      });
+    })
+    .catch(err => {
+      console.log(err);
     });
 
-    conn.on('error', err => {
-      console.log('Error :: ' + err);
-    });
-
-    conn.on('end', () => {
-      console.log('Client :: end');
-      conn.end();
-    });
-
-    conn.connect({
-      host: '3.109.154.134',
-      port: 22,
-      username: 'ubuntu',
-      privateKey: require('fs').readFileSync('react-deploy-2.pem')
-    });
-  }
+  return;
 };
 
 main();
