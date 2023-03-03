@@ -96,16 +96,20 @@ services:
 
 const getNginxConfigFile = args => {
   return `server {
-    listen 80;
-    #server_name server_name.com
+    listen 80 default_server;
+    root /var/www/html;
 
-    root /usr/share/nginx/html;
     index index.html index.htm;
 
+    server_name 3.109.154.134;
+
     location / {
-      try_files $uri $uri/ /index.html;
+            # First attempt to serve request as file, then
+            # as directory, then fall back to displaying a 404.
+            try_files $uri $uri/ =404;
     }
-  }`;
+}
+`;
 };
 
 const createDockerComposeFile = args => {
@@ -165,6 +169,15 @@ const createNginxConfigFile = args => {
 
 const main = async () => {
   const args = parseArguments();
+  const {
+    nodeVersion,
+    workingDirectory,
+    gitUser,
+    gitToken,
+    gitUsername,
+    repoName,
+    folderPath
+  } = args;
   if (args['help'])
     console.log(
       `
@@ -210,7 +223,16 @@ const main = async () => {
     conn.on('ready', () => {
       console.log('Client :: ready');
       conn.exec(
-        'sudo mkdir react-deploy \nsudo chown -R ubuntu react-deploy',
+        `sudo apt-get update\n
+        sudo apt-get install nodejs -y\n
+        sudo apt-get install npm -y\n
+        sudo rm -R ${repoName}\n
+        sudo git clone https://${gitUsername}:${gitToken}@github.com/${gitUsername}/${repoName}.git
+        cd ${repoName}
+        sudo npm i --force
+        sudo npm run build
+        sudo cp -r build/. /var/www/html/
+        `,
         (err, stream) => {
           if (err) throw err;
           stream
@@ -239,10 +261,10 @@ const main = async () => {
                         sudo docker rm $(sudo docker ps -a -q)
                         cd react-deploy
                         ls -a
-                        sudo mv default.conf /etc/nginx/conf.d/
                         sudo docker compose build
                         sudo docker compose up -d
                         sudo systemctl status nginx
+                        sudo systemctl start nginx
                         `,
                         (err, stream) => {
                           if (err) throw err;
