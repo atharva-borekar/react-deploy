@@ -1,4 +1,5 @@
 const { exec } = require("child_process");
+const { resolve } = require("path");
 const readline = require("readline").createInterface({
     input: process.stdin,
     output: process.stdout,
@@ -151,12 +152,29 @@ const userConfig = () =>
         const configObj = {};
         readline.question("Enter deployment server public ip: ", (publicIp) => {
             configObj["publicIp"] = publicIp;
-            readline.question("Enter instance public dns", (publicDns) => {
+            readline.question("Enter instance public dns: ", (publicDns) => {
                 configObj["publicDns"] = publicDns;
                 resolve(configObj);
                 readline.close();
             });
         });
+    });
+
+const addSshKeyToHost = ({ keyName, publicDns }) =>
+    new Promise((resolve, reject) => {
+        console.log(`ssh -i "${keyName}" ${publicDns}`);
+        exec(`ssh -i "${keyName}" ${publicDns}`, (error, stdout, stderr) => {
+            if (error) {
+                reject(
+                    `Error encountered when adding ssh key: ${error.message}`
+                );
+            }
+            if (stderr) {
+                console.log(`stderr: ${stderr}`);
+            }
+
+            print(stdout);
+        }).stdin.write("yes");
     });
 
 const main = async () => {
@@ -199,149 +217,194 @@ const main = async () => {
                             console.log("Creating Nginx config file --->");
                             createNginxConfigFile({
                                 publicIp: configObj["publicIp"],
-                            }).then(() => {
-                                console.log(
-                                    "Nginx config file created successfully!"
-                                );
-                                const Client = require("ssh2").Client;
-
-                                const conn = new Client();
-
-                                conn.on("ready", () => {
-                                    console.log("Client :: ready");
-                                    exec(
-                                        `scp -i react-deploy-2.pem -r build/ ${configObj["publicDns"]}:~/`
+                            })
+                                .then(() => {
+                                    console.log(
+                                        "Nginx config file created successfully!"
                                     );
-                                    conn.exec(
-                                        `sudo apt-get install nginx -y`,
-                                        (err, stream) => {
-                                            if (err) throw err;
-                                            stream
-                                                .on("close", (code, signal) => {
-                                                    console.log(
-                                                        "Copying nginx config"
-                                                    );
+                                    // addSshKeyToHost({
+                                    //     keyName: "react-deploy-2.pem",
+                                    //     publicDns: configObj["publicDns"],
+                                    // })
+                                    //     .then(() => {
+                                    //         exec(
+                                    //             `exit`,
+                                    //             (error, stdout, stderr) => {
+                                    //                 if (error) {
+                                    //                     reject(
+                                    //                         `Error encountered when adding ssh key: ${error.message}`
+                                    //                     );
+                                    //                 }
+                                    //                 if (stderr) {
+                                    //                     console.log(
+                                    //                         `stderr: ${stderr}`
+                                    //                     );
+                                    //                 }
 
-                                                    exec(
-                                                        `scp default.conf ${configObj["publicDns"]}:~/etc/nginx/sites-available/
+                                    //                 print(stdout);
+                                    //             }
+                                    //         );
+                                    const Client = require("ssh2").Client;
+
+                                    const conn = new Client();
+
+                                    conn.on("ready", () => {
+                                        console.log("Client :: ready");
+                                        exec(
+                                            `scp -i react-deploy-2.pem -r build/ ${configObj["publicDns"]}:~/`
+                                        );
+                                        conn.exec(
+                                            `sudo apt-get install nginx -y`,
+                                            (err, stream) => {
+                                                if (err) throw err;
+                                                stream
+                                                    .on(
+                                                        "close",
+                                                        (code, signal) => {
+                                                            console.log(
+                                                                "Copying nginx config"
+                                                            );
+
+                                                            exec(
+                                                                `scp -y default.conf ${configObj["publicDns"]}:~/etc/nginx/sites-available/
                      scp default.conf ${configObj["publicDns"]}:~/etc/nginx/conf.d/
                     `
-                                                    );
-                                                    console.log(
-                                                        "Copying nginx config successful!"
-                                                    );
+                                                            );
+                                                            console.log(
+                                                                "Copying nginx config successful!"
+                                                            );
 
-                                                    conn.exec(
-                                                        "sudo cp -r build/. /var/www/html/",
-                                                        (err, stream) => {
-                                                            if (err) throw err;
-                                                            stream
-                                                                .on(
-                                                                    "close",
-                                                                    (
-                                                                        code,
-                                                                        signal
-                                                                    ) => {
-                                                                        conn.exec(
-                                                                            "sudo systemctl restart nginx",
+                                                            conn.exec(
+                                                                "cd && sudo cp -r build/. /var/www/html/",
+                                                                (
+                                                                    err,
+                                                                    stream
+                                                                ) => {
+                                                                    if (err)
+                                                                        throw err;
+                                                                    stream
+                                                                        .on(
+                                                                            "close",
                                                                             (
-                                                                                err,
-                                                                                stream
+                                                                                code,
+                                                                                signal
                                                                             ) => {
-                                                                                if (
-                                                                                    err
-                                                                                )
-                                                                                    throw err;
-                                                                                stream
-                                                                                    .on(
-                                                                                        "close",
-                                                                                        (
-                                                                                            code,
-                                                                                            signal
-                                                                                        ) => {
-                                                                                            conn.end();
-                                                                                        }
-                                                                                    )
-                                                                                    .on(
-                                                                                        "data",
-                                                                                        (
-                                                                                            data
-                                                                                        ) => {
-                                                                                            console.log(
-                                                                                                "STDOUT: " +
+                                                                                conn.exec(
+                                                                                    "sudo systemctl restart nginx",
+                                                                                    (
+                                                                                        err,
+                                                                                        stream
+                                                                                    ) => {
+                                                                                        if (
+                                                                                            err
+                                                                                        )
+                                                                                            throw err;
+                                                                                        stream
+                                                                                            .on(
+                                                                                                "close",
+                                                                                                (
+                                                                                                    code,
+                                                                                                    signal
+                                                                                                ) => {
+                                                                                                    conn.end();
+                                                                                                }
+                                                                                            )
+                                                                                            .on(
+                                                                                                "data",
+                                                                                                (
                                                                                                     data
-                                                                                            );
-                                                                                        }
-                                                                                    )
-                                                                                    .stderr.on(
-                                                                                        "data",
-                                                                                        (
-                                                                                            data
-                                                                                        ) => {
-                                                                                            console.log(
-                                                                                                "STDERR: " +
+                                                                                                ) => {
+                                                                                                    console.log(
+                                                                                                        "STDOUT: " +
+                                                                                                            data
+                                                                                                    );
+                                                                                                }
+                                                                                            )
+                                                                                            .stderr.on(
+                                                                                                "data",
+                                                                                                (
                                                                                                     data
+                                                                                                ) => {
+                                                                                                    console.log(
+                                                                                                        "STDERR: " +
+                                                                                                            data
+                                                                                                    );
+                                                                                                }
                                                                                             );
-                                                                                        }
-                                                                                    );
+                                                                                    }
+                                                                                );
+                                                                            }
+                                                                        )
+                                                                        .on(
+                                                                            "data",
+                                                                            (
+                                                                                data
+                                                                            ) => {
+                                                                                console.log(
+                                                                                    "STDOUT: " +
+                                                                                        data
+                                                                                );
+                                                                            }
+                                                                        )
+                                                                        .stderr.on(
+                                                                            "data",
+                                                                            (
+                                                                                data
+                                                                            ) => {
+                                                                                console.log(
+                                                                                    "STDERR: " +
+                                                                                        data
+                                                                                );
                                                                             }
                                                                         );
-                                                                    }
-                                                                )
-                                                                .on(
-                                                                    "data",
-                                                                    (data) => {
-                                                                        console.log(
-                                                                            "STDOUT: " +
-                                                                                data
-                                                                        );
-                                                                    }
-                                                                )
-                                                                .stderr.on(
-                                                                    "data",
-                                                                    (data) => {
-                                                                        console.log(
-                                                                            "STDERR: " +
-                                                                                data
-                                                                        );
-                                                                    }
-                                                                );
+                                                                }
+                                                            );
+                                                        }
+                                                    )
+                                                    .on("data", (data) => {
+                                                        console.log(
+                                                            "STDOUT: " + data
+                                                        );
+                                                    })
+                                                    .stderr.on(
+                                                        "data",
+                                                        (data) => {
+                                                            console.log(
+                                                                "STDERR: " +
+                                                                    data
+                                                            );
                                                         }
                                                     );
-                                                })
-                                                .on("data", (data) => {
-                                                    console.log(
-                                                        "STDOUT: " + data
-                                                    );
-                                                })
-                                                .stderr.on("data", (data) => {
-                                                    console.log(
-                                                        "STDERR: " + data
-                                                    );
-                                                });
-                                        }
-                                    );
-                                });
+                                            }
+                                        );
+                                    });
 
-                                conn.on("error", (err) => {
-                                    console.log("Error :: " + err);
-                                });
+                                    conn.on("error", (err) => {
+                                        console.log("Error :: " + err);
+                                    });
 
-                                conn.on("end", () => {
-                                    console.log("Client :: end");
-                                    conn.end();
-                                });
+                                    conn.on("end", () => {
+                                        console.log("Client :: end");
+                                        conn.end();
+                                    });
 
-                                conn.connect({
-                                    host: configObj["publicIp"],
-                                    port: 22,
-                                    username: "ubuntu",
-                                    privateKey:
-                                        require("fs").readFileSync(
-                                            "react-deploy-2.pem"
-                                        ),
+                                    conn.connect({
+                                        host: configObj["publicIp"],
+                                        port: 22,
+                                        username: "ubuntu",
+                                        privateKey:
+                                            require("fs").readFileSync(
+                                                "react-deploy-2.pem"
+                                            ),
+                                    });
+                                    // })
+                                    // .catch((err) => {
+                                    //     console.log(err);
+                                    // });
+                                })
+                                .catch((err) => {
+                                    console.log(err);
                                 });
-                            });
                         })
                         .catch((err) => {
                             console.log(err);
@@ -357,4 +420,3 @@ const main = async () => {
 };
 
 main();
-
