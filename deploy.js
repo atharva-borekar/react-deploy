@@ -152,6 +152,7 @@ const userConfig = () =>
       configObj['publicIp'] = publicIp;
       readline.question('Enter instance public dns: ', publicDns => {
         configObj['publicDns'] = publicDns;
+        configObj['user'] = publicDns.split('@')[0];
         readline.question('Enter private key path: ', privateKey => {
           configObj['privateKey'] = privateKey;
           resolve(configObj);
@@ -161,8 +162,68 @@ const userConfig = () =>
     });
   });
 
-const copyBuildToServer = configObj =>
-  exec(`scp -i deploy-react.pem -r build {${configObj['publicDns']}}:~/`);
+const copyBuild = configObj =>
+  new Promise((resolve, reject) => {
+    exec(
+      `scp -i deploy-react.pem -r build ${configObj['publicDns']}:~/`,
+      (error, stdout, stderr) => {
+        if (error) {
+          reject(
+            new Error(
+              `Error encountered while installing NPM packages: ${error.message}`
+            )
+          );
+        }
+        if (stderr) {
+          printWarning(`stderr: ${stderr}`);
+          return;
+        }
+        print(stdout);
+        resolve('Build has been copied to server!');
+      }
+    );
+  });
+
+const copyBuildToServer = (configObj, conn) => {
+  conn.exec(`sudo chown ${configObj['user']} .`, (err, stream) => {
+    if (err) throw err;
+    stream
+      .on('close', (code, signal) => {
+        copyBuild().then(() => {
+          conn.exec(
+            `sudo chown ${configObj['user']} build/ && sudo apt-get update && sudo apt-get install nginx-core -y && cd && sudo chown ubuntu /etc/nginx/sites-available/`,
+            (err, stream) => {
+              if (err) throw err;
+              stream
+                .on('close', (code, signal) => {
+                  console.log('Copying nginx config');
+
+                  exec(
+                    `scp -i deploy-react.pem default.conf ${configObj['publicDns']}:~/etc/nginx/sites-available/
+             scp -i deploy-react.pem default.conf ${configObj['publicDns']}:~/etc/nginx/conf.d/
+            `
+                  );
+                  console.log('Copying nginx config successful!');
+                  copyBuildToVarWwwHtml(conn);
+                })
+                .on('data', data => {
+                  console.log('STDOUT: ' + data);
+                })
+                .stderr.on('data', data => {
+                  console.log('STDERR: ' + data);
+                });
+            }
+          );
+        });
+      })
+      .on('data', data => {
+        console.log('STDOUT: ' + data);
+      })
+      .stderr.on('data', data => {
+        console.log('STDERR: ' + data);
+      });
+  });
+};
 
 const restartNginxServer = conn =>
   conn.exec('sudo systemctl restart nginx', (err, stream) => {
@@ -221,39 +282,12 @@ const main = async () => {
               })
                 .then(() => {
                   console.log('Nginx config file created successfully!');
-
                   const Client = require('ssh2').Client;
-
                   const conn = new Client();
-
                   conn.on('ready', () => {
                     console.log('Client :: ready');
 
-                    copyBuildToServer(configObj);
-                    conn.exec(
-                      `sudo apt-get update && sudo apt-get install nginx-core -y && cd && sudo chown ubuntu /etc/nginx/sites-available/`,
-                      (err, stream) => {
-                        if (err) throw err;
-                        stream
-                          .on('close', (code, signal) => {
-                            console.log('Copying nginx config');
-
-                            exec(
-                              `scp -i deploy-react.pem default.conf ${configObj['publicDns']}:~/etc/nginx/sites-available/
-                       scp -i deploy-react.pem default.conf ${configObj['publicDns']}:~/etc/nginx/conf.d/
-                      `
-                            );
-                            console.log('Copying nginx config successful!');
-                            copyBuildToVarWwwHtml(conn);
-                          })
-                          .on('data', data => {
-                            console.log('STDOUT: ' + data);
-                          })
-                          .stderr.on('data', data => {
-                            console.log('STDERR: ' + data);
-                          });
-                      }
-                    );
+                    copyBuildToServer(configObj, conn);
                   });
 
                   conn.on('error', err => {
@@ -270,7 +304,9 @@ const main = async () => {
                     port: 22,
                     username: 'ubuntu',
                     privateKey: require('fs').readFileSync(
-                      configObj['privateKey'] ?? 'deploy-react.pem'
+                      configObj['privateKey']?.length > 0
+                        ? configObj['privateKey']
+                        : 'deploy-react.pem'
                     )
                   });
                 })
