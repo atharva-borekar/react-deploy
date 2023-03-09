@@ -152,51 +152,56 @@ const userConfig = () =>
       configObj['publicIp'] = publicIp;
       readline.question('Enter instance public dns: ', publicDns => {
         configObj['publicDns'] = publicDns;
-        resolve(configObj);
-        readline.close();
+        readline.question('Enter private key path: ', privateKey => {
+          configObj['privateKey'] = privateKey;
+          resolve(configObj);
+          readline.close();
+        });
       });
     });
   });
 
-const addSshKeyToHost = ({ keyName, publicDns }) =>
-  new Promise((resolve, reject) => {
-    console.log(`ssh -i "${keyName}" ${publicDns}`);
-    exec(`ssh -i "${keyName}" ${publicDns}`, (error, stdout, stderr) => {
-      if (error) {
-        reject(`Error encountered when adding ssh key: ${error.message}`);
-      }
-      if (stderr) {
-        console.log(`stderr: ${stderr}`);
-      }
+const copyBuildToServer = configObj =>
+  exec(`scp -i deploy-react.pem -r build {${configObj['publicDns']}}:~/`);
 
-      print(stdout);
-    }).stdin.write('yes');
+const restartNginxServer = conn =>
+  conn.exec('sudo systemctl restart nginx', (err, stream) => {
+    if (err) throw err;
+    stream
+      .on('close', (code, signal) => {
+        conn.end();
+      })
+      .on('data', data => {
+        console.log('STDOUT: ' + data);
+      })
+      .stderr.on('data', data => {
+        console.log('STDERR: ' + data);
+      });
   });
+
+const copyBuildToVarWwwHtml = conn => {
+  conn.exec('cd && sudo cp -r build/. /var/www/html/', (err, stream) => {
+    if (err) throw err;
+    stream
+      .on('close', (code, signal) => {
+        restartNginxServer(conn);
+      })
+      .on('data', data => {
+        console.log('STDOUT: ' + data);
+      })
+      .stderr.on('data', data => {
+        console.log('STDERR: ' + data);
+      });
+  });
+};
 
 const main = async () => {
   const args = parseArguments();
-  const {
-    nodeVersion,
-    workingDirectory,
-    gitUser,
-    gitToken,
-    gitUsername,
-    repoName,
-    folderPath
-  } = args;
   if (args['help'])
     console.log(
       `
     Flags for deployment config:
-    --nodeVersion=<NODE VERSION HERE> //specify node version for application (default: node:16-alpine)
-    --workDirectory=<WORK DIRECTORY PATH>  //specify work direcory path inside container where application will be present
-    --dockerComposeFilename=<>
-    --dockerfileName=<>
-    --dockerVersion=<>
-    --containerName=<>
-    --containerPort=<>
-    --hostPort=<>
-    `
+       `
     );
 
   userConfig()
@@ -223,11 +228,10 @@ const main = async () => {
 
                   conn.on('ready', () => {
                     console.log('Client :: ready');
-                    exec(
-                      `scp -i deploy-react.pem -y -a build {${configObj['publicDns']}}:~/build`
-                    );
+
+                    copyBuildToServer(configObj);
                     conn.exec(
-                      `sudo apt-get update && sudo apt-get install nginx-core -y`,
+                      `sudo apt-get update && sudo apt-get install nginx-core -y && cd && sudo chown ubuntu /etc/nginx/sites-available/`,
                       (err, stream) => {
                         if (err) throw err;
                         stream
@@ -240,38 +244,7 @@ const main = async () => {
                       `
                             );
                             console.log('Copying nginx config successful!');
-
-                            conn.exec(
-                              'cd && sudo cp -r build/. /var/www/html/',
-                              (err, stream) => {
-                                if (err) throw err;
-                                stream
-                                  .on('close', (code, signal) => {
-                                    conn.exec(
-                                      'sudo systemctl restart nginx',
-                                      (err, stream) => {
-                                        if (err) throw err;
-                                        stream
-                                          .on('close', (code, signal) => {
-                                            conn.end();
-                                          })
-                                          .on('data', data => {
-                                            console.log('STDOUT: ' + data);
-                                          })
-                                          .stderr.on('data', data => {
-                                            console.log('STDERR: ' + data);
-                                          });
-                                      }
-                                    );
-                                  })
-                                  .on('data', data => {
-                                    console.log('STDOUT: ' + data);
-                                  })
-                                  .stderr.on('data', data => {
-                                    console.log('STDERR: ' + data);
-                                  });
-                              }
-                            );
+                            copyBuildToVarWwwHtml(conn);
                           })
                           .on('data', data => {
                             console.log('STDOUT: ' + data);
@@ -296,7 +269,9 @@ const main = async () => {
                     host: configObj['publicIp'],
                     port: 22,
                     username: 'ubuntu',
-                    privateKey: require('fs').readFileSync('deploy-react.pem')
+                    privateKey: require('fs').readFileSync(
+                      configObj['privateKey'] ?? 'deploy-react.pem'
+                    )
                   });
                 })
                 .catch(err => {
