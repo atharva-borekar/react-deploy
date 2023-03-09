@@ -323,3 +323,9 @@ main();
 
 //copy build from root to /var/www/html
 //cd && sudo cp -r build/. /var/www/html/
+
+//own build folder
+//cd && sudo chown ubuntu build
+
+//own sites-available folder
+//cd && sudo chown ubuntu /etc/nginx/sites-available/
